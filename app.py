@@ -1,11 +1,11 @@
 import streamlit as st
 import tensorflow as tf
-from tensorflow.keras.models import Model
+from tensorflow.keras.models import load_model
 from tensorflow.keras.applications.densenet import preprocess_input
 import numpy as np
 from PIL import Image
 import json
-from typing import List, Tuple, Optional
+import os
 
 # Configure page
 st.set_page_config(
@@ -136,13 +136,12 @@ st.markdown("""
 
 # --- MODEL LOADING ---
 @st.cache_resource
-def load_resources() -> Tuple[Optional[Model], Optional[List[str]]]:
+def load_resources():
     """Load the model and class names, caching them for performance."""
     try:
         with open("cat_to_name.json", "r") as f:
             class_names_map = json.load(f)
-        
-        flower_classes = [""] * 102
+        flower_classes = ["" for _ in range(102)]
         for key, name in class_names_map.items():
             index = int(key) - 1
             if 0 <= index < 102:
@@ -156,12 +155,25 @@ def load_resources() -> Tuple[Optional[Model], Optional[List[str]]]:
         st.error(f"❌ Failed to load or process class names from 'cat_to_name.json': {e}")
         return None, None
         
-    try:
-        model: Model = tf.keras.models.load_model('densenet201_oxfordflowers_best.keras')
-        return model, flower_classes
-    except Exception as e:
-        st.error(f"❌ Could not load DenseNet201 model: {str(e)}")
-        st.error("Please ensure 'densenet201_oxfordflowers_best.keras' is in the project folder.")
+    model_path_keras = 'densenet201_oxfordflowers_best.keras'
+    model_path_h5 = 'densenet201_oxfordflowers_best.h5'
+    model_path = None
+
+    if os.path.exists(model_path_keras):
+        model_path = model_path_keras
+    elif os.path.exists(model_path_h5):
+        model_path = model_path_h5
+        
+    if model_path:
+        try:
+            model: Model = tf.keras.models.load_model(model_path)
+            return model, flower_classes
+        except Exception as e:
+            st.error(f"❌ Error loading model file '{model_path}': {str(e)}")
+            return None, None
+    else:
+        st.error("❌ Could not find the model file.")
+        st.error(f"Please ensure '{model_path_keras}' or '{model_path_h5}' is in the project folder.")
         return None, None
 
 # --- IMAGE PROCESSING & PREDICTION ---
@@ -173,22 +185,23 @@ def preprocess_image(image: Image.Image) -> np.ndarray:
     image_array = np.expand_dims(image_array, axis=0)
     return preprocess_input(image_array)
 
-def predict_flower(model: Model, image: Image.Image, flower_classes: List[str]) -> List[Tuple[str, float]]:
+def predict_flower(model, image, flower_classes):
     """Makes a prediction and returns the top 5 results."""
     processed_img = preprocess_image(image)
     predictions = model.predict(processed_img, verbose=0)[0]
     
+    # Get top 5 predictions
     top_indices = np.argsort(predictions)[-5:][::-1]
-    top_results: List[Tuple[str, float]] = [
+    top_results = [
         (flower_classes[i], float(predictions[i])) for i in top_indices
     ]
     return top_results
 
 # --- MAIN APP LAYOUT ---
+# Load model and class names once
 model, flower_classes = load_resources()
 
 if not model or not flower_classes:
-    st.error("Model or class names could not be loaded. Stopping the application.")
     st.stop()
 
 # Header
@@ -208,10 +221,10 @@ uploaded_file = st.file_uploader(
 )
 st.markdown('</div>', unsafe_allow_html=True)
 
+
 # Perform prediction and display results
 if uploaded_file is not None:
     image_to_process = Image.open(uploaded_file).convert("RGB")
-    
     st.image(image_to_process, caption="Your Image", use_container_width=True)
     
     with st.spinner("🧠 AI is analyzing the flower..."):
@@ -219,6 +232,7 @@ if uploaded_file is not None:
 
     st.markdown('<div class="results-container">', unsafe_allow_html=True)
 
+    # Display the top prediction in a special card
     top_flower, top_confidence = top_results[0]
     st.markdown(f"""
     <div class="prediction-card">
@@ -230,6 +244,7 @@ if uploaded_file is not None:
     </div>
     """, unsafe_allow_html=True)
 
+    # Display other predictions
     if len(top_results) > 1:
         st.markdown('<div class="other-predictions"><h3>Other possibilities:</h3>', unsafe_allow_html=True)
         for flower_name, confidence in top_results[1:]:
