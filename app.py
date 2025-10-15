@@ -166,7 +166,7 @@ def load_resources():
         
     if model_path:
         try:
-            model: Model = tf.keras.models.load_model(model_path)
+            model= tf.keras.models.load_model(model_path)
             return model, flower_classes
         except Exception as e:
             st.error(f"❌ Error loading model file '{model_path}': {str(e)}")
